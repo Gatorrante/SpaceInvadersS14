@@ -1,111 +1,133 @@
 var fondoJuego;
 var nave;
-var cursores;
 var balas;
 var tiempoBala = 0;
 var botonDisparo;
 var enemigos;
-var juego = new Phaser.Game(370, 550, Phaser.CANVAS, 'bloque_juego');
+var tiempoEntreBalas = 400;
+var tiempo = 0;
+var malos;
+var timer;
 var puntos = 0;
-var puntosText;
+var txtPuntos;
+var vidas;
+var txtVidas;
+var juego = new Phaser.Game(370, 550, Phaser.CANVAS, 'bloque_juego');
+
 var estadoPrincipal = {
   preload: function() {
     juego.load.image('fondo', 'img/space.png');
-    juego.load.image('personaje', 'img/nave.png');
+    juego.load.image('nave', 'img/nave.png');
     juego.load.image('laser', 'img/laser.png');
-    juego.load.image('enemigo', 'img/pajaro2.png');
+    juego.load.image('malo', 'img/pajaro2.png'); // Cambiado a pajaro2.png
     juego.load.audio('disparo', 'audio/disparo.wav');
     juego.load.audio('explosion', 'audio/explosion.wav');
   },
 
   create: function() {
     fondoJuego = juego.add.tileSprite(0, 0, 370, 550, 'fondo');
+    juego.physics.startSystem(Phaser.Physics.ARCADE);
 
-    nave = juego.add.sprite(juego.width / 2, 500, 'personaje');
+    nave = juego.add.sprite(juego.width / 2, 485, 'nave');
     nave.anchor.setTo(0.5);
-
-    cursores = juego.input.keyboard.createCursorKeys();
-    botonDisparo = juego.input.keyboard.addKey(Phaser.Keyboard.SPACEBAR);
+    juego.physics.arcade.enable(nave, true);
 
     balas = juego.add.group();
     balas.enableBody = true;
     balas.physicsBodyType = Phaser.Physics.ARCADE;
-    balas.createMultiple(20, 'laser');
+    balas.createMultiple(50, 'laser');
     balas.setAll('anchor.x', 0.5);
-    balas.setAll('anchor.y', 1);
+    balas.setAll('anchor.y', 0.5);
     balas.setAll('outOfBoundsKill', true);
     balas.setAll('checkWorldBounds', true);
 
-    enemigos = juego.add.group();
-    enemigos.enableBody = true;
-    enemigos.physicsBodyType = Phaser.Physics.ARCADE;
+    malos = juego.add.group();
+    malos.enableBody = true;
+    malos.physicsBodyType = Phaser.Physics.ARCADE;
+    malos.createMultiple(50, 'malo'); // Usando pajaro2.png
+    malos.setAll('anchor.x', 0.5);
+    malos.setAll('anchor.y', 0.5);
+    malos.setAll('outOfBoundsKill', true);
+    malos.setAll('checkWorldBounds', true);
 
-    //crear enemigos y mostrarlos en pantalla
-    for (var y = 0; y < 6; y++) {
-      for (var x = 0; x < 7; x++) {
-        var enemigo = enemigos.create(x * 40, y * 20, 'enemigo');
-        enemigo.anchor.setTo(0.5);
-      }
-    }
-    enemigos.x = 50;
-    enemigos.y = 30;
-    var animacion = juego.add.tween(enemigos).to({ x: 100 }, 1000, Phaser.Easing.Linear.None,
-      true, 0, 1000, true);
+    timer = juego.time.events.loop(2000, this.crearEnemigo, this);
 
-    puntosText = juego.add.text(10, 530, 'Puntos: 0', { font: '16px Arial', fill: '#ffffff' });
-	nombreText = juego.add.text(juego.width - 10, juego.height - 10, 'Diego Alonso Miñano Lavado', { font: '16px Arial', fill: '#ffffff' });
-    nombreText.anchor.setTo(1, 0.5); 
-    juego.sound.add('disparo');
-    juego.sound.add('explosion');
+    // Definiendo el puntaje y las vidas en pantalla
+    txtPuntos = juego.add.text(80, 20, "0", { font: "14px Arial", fill: "#FFF" });
+    juego.add.text(20, 20, "Puntos: ", { font: "14px Arial", fill: "#FFF" });
+    txtVidas = juego.add.text(360, 20, "3", { font: "14px Arial", fill: "#FFF" });
+    juego.add.text(310, 20, "Vidas: ", { font: "14px Arial", fill: "#FFF" });
+    juego.add.text(20, 520, "Miñano Lavado Diego Alonso", { font: "14px Arial", fill: "#FFF" });
+
+    // Inicializando vidas
+    vidas = 3;
+
+    // Agregar controles de entrada
+    juego.input.onDown.add(this.disparar, this);
   },
 
   update: function() {
-    //animamos el juego
-    if (cursores.right.isDown) {
-      nave.position.x += 3;
-    } else if (cursores.left.isDown) {
-      nave.position.x -= 3;
-    }
-
-    if (botonDisparo.isDown && juego.time.now > tiempoBala) {
-      var bala = balas.getFirstExists(false);
-      if (bala) {
-        bala.reset(nave.x, nave.y);
-        bala.body.velocity.y = -300;
-        tiempoBala = juego.time.now + 100;
-        juego.sound.play('disparo');
-      }
-    }
+    nave.rotation = juego.physics.arcade.angleToPointer(nave) + Math.PI / 2;
+    nave.x = juego.input.x;
 
     fondoJuego.tilePosition.y += 1; // Mueve el fondo hacia abajo
 
-    juego.physics.arcade.overlap(balas, enemigos, colision, null, this);
-}
+    // Agregando colisiones
+    juego.physics.arcade.overlap(balas, malos, this.colision, null, this);
+    
+    // Defendiendo el contador de vidas
+    malos.forEachAlive(function(m) {
+      if (m.position.y > 520 && m.position.y < 521) {
+        vidas -= 1;
+        txtVidas.text = vidas;
+        m.kill(); // Eliminar enemigo cuando llega al límite inferior
+      }
+    });
+
+    if (vidas === 0) {
+      this.gameOver();
+    }
+  },
+
+  disparar: function() {
+    if (juego.time.now > tiempo && balas.countDead() > 0) {
+      tiempo = juego.time.now + tiempoEntreBalas;
+      var sonidoDisparo = juego.add.audio('disparo');
+      sonidoDisparo.play();
+      var bala = balas.getFirstDead();
+      bala.anchor.setTo(0.5);
+      bala.reset(nave.x, nave.y);
+      bala.rotation = juego.physics.arcade.angleToPointer(bala) + Math.PI / 2;
+      juego.physics.arcade.moveToPointer(bala, 200);
+    }
+  },
+
+  crearEnemigo: function() {
+    var enem = malos.getFirstDead();
+    var num = Math.floor(Math.random() * 10 + 1);
+    enem.reset(num * 38, 0);
+    enem.anchor.setTo(0.5);
+    enem.body.velocity.y = 100;
+    enem.checkWorldBounds = true;
+    enem.outOfBoundsKill = true;
+  },
+
+  colision: function(b, m) {
+    var sonidoExplosion = juego.add.audio('explosion');
+    sonidoExplosion.play();
+    b.kill();
+    m.kill();
+    puntos++;
+    txtPuntos.text = puntos;
+  },
+
+  gameOver: function() {
+    juego.add.text(juego.world.centerX, juego.world.centerY, "GAME OVER", { font: "bold 32px Arial", fill: "#FFF" }).anchor.setTo(0.5);
+    juego.time.events.add(Phaser.Timer.SECOND * 3, function() {
+      juego.state.start('principal'); // Reinicia el juego cambiando al estado 'principal'
+    }, this);
+  }
 };
-
-function colision(bala, enemigo) {
-bala.kill();
-enemigo.kill();
-puntos += 100;
-puntosText.text = 'Puntos: ' + puntos;
-
-juego.sound.play('explosion');
-
-if (enemigos.countLiving() === 0) {
-  var ganasteText = juego.add.text(juego.world.centerX, juego.world.centerY, 'GANASTE', {
-	font: '32px Arial',
-	fill: '#ffffff'
-  });
-  ganasteText.anchor.setTo(0.5);
-
-  juego.time.events.add(Phaser.Timer.SECOND * 5, reiniciarJuego, this);
-}
-}
-
-function reiniciarJuego() {
-juego.state.start('principal');
-puntos = 0;
-}
 
 juego.state.add('principal', estadoPrincipal);
 juego.state.start('principal');
